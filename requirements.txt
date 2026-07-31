@@ -1,0 +1,5 @@
+discord.py==2.7.1
+feedparser==6.0.13
+APScheduler==3.11.3
+python-dotenv==1.2.2
+certifi==2026.7.22

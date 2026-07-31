@@ -1,0 +1,56 @@
+[
+  {
+    "name": "Light Reading",
+    "category": "Telecom",
+    "channel": "telecom-news",
+    "url": "https://www.lightreading.com/rss.xml"
+  },
+  {
+    "name": "Telecompetitor",
+    "category": "Fiber / Broadband",
+    "channel": "fiber-news",
+    "url": "https://www.telecompetitor.com/feed/"
+  },
+  {
+    "name": "RCR Wireless News",
+    "category": "Wireless / 5G",
+    "channel": "wireless-news",
+    "url": "https://www.rcrwireless.com/feed"
+  },
+  {
+    "name": "Microsoft Azure Blog",
+    "category": "Cloud",
+    "channel": "cloud-news",
+    "url": "https://azure.microsoft.com/en-us/blog/feed/"
+  },
+  {
+    "name": "NVIDIA AI Blog",
+    "category": "Artificial Intelligence",
+    "channel": "ai-news",
+    "url": "https://blogs.nvidia.com/feed/"
+  },
+  {
+    "name": "BleepingComputer",
+    "category": "Cybersecurity",
+    "channel": "cybersecurity-news",
+    "url": "https://www.bleepingcomputer.com/feed/"
+  },
+  {
+    "name": "FCC Headlines",
+    "category": "Regulatory",
+    "channel": "regulatory-news",
+    "url": "https://www.fcc.gov/news-events/headlines/rss.xml"
+  },
+  {
+    "name": "Data Center Dynamics",
+    "category": "Data Centers",
+    "channel": "datacenter-news",
+    "url": "https://www.datacenterdynamics.com/rss/"
+  },
+  {
+    "name": "Wired.com",
+    "category": "Artificial Intelligence",
+    "channel": "ai-news",
+    "url": "https://www.wired.com/feed/tag/ai/latest/rss"
+  }
+]

@@ -52,5 +52,41 @@
     "category": "Artificial Intelligence",
     "channel": "ai-news",
     "url": "https://www.wired.com/feed/tag/ai/latest/rss"
+  },
+  {
+    "name": "Wired.com",
+    "category": "Cybersecurity",
+    "channel": "cybersecurity-news",
+    "url": "https://www.wired.com/feed/category/security/latest/rss"
+  },
+  {
+    "name": "Wired.com",
+    "category": "Business Technology",
+    "channel": "business-news",
+    "url": "https://www.wired.com/feed/category/business/latest/rss"
+  },
+  {
+    "name": "Hackernoon",
+    "category": "Artificial Intelligence",
+    "channel": "ai-news",
+    "url": "https://hackernoon.com/tagged/ai/feed"
+  },
+  {
+    "name": "Hackernoon",
+    "category": "Cybersecurity",
+    "channel": "cybersecurity-news",
+    "url": "https://hackernoon.com/tagged/cybersecurity/feed"
+  },
+  {
+    "name": "Hackernoon",
+    "category": "Business Technology",
+    "channel": "business-news",
+    "url": "https://hackernoon.com/tagged/business/feed"
+  },
+  {
+    "name": "Hackernoon",
+    "category": "Software Engineering",
+    "channel": "software-engineering",
+    "url": "https://hackernoon.com/tagged/engineering/feed"
   }
 ]

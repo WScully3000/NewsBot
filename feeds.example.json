@@ -1,1 +1,15 @@
-[]
+[
+  {
+    "name": "Example RSS Source",
+    "category": "General",
+    "channel": "general-news",
+    "url": "https://example.com/feed.xml"
+  },
+  {
+    "name": "NVD CVE API",
+    "category": "Security",
+    "channel": "security-news",
+    "url": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+    "type": "nvd-cve"
+  }
+]

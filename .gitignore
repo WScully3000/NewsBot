@@ -1,3 +1,5 @@
 .env
 news.db
 __pycache__/
+channels.json
+feeds.json

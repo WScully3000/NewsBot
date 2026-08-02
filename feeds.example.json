@@ -88,5 +88,36 @@
     "category": "Software Engineering",
     "channel": "software-engineering",
     "url": "https://hackernoon.com/tagged/engineering/feed"
+  },
+  {
+    "name": "NIST News",
+    "category": "CVE",
+    "channel": "cve-news",
+    "url": "https://www.nist.gov/news-events/news/rss.xml"
+  },
+  {
+    "name": "NIST Events",
+    "category": "CVE",
+    "channel": "cve-news",
+    "url": "https://www.nist.gov/news-events/events/rss.xml"
+  },
+  {
+    "name": "NIST IT News",
+    "category": "CVE",
+    "channel": "cve-news",
+    "url": "https://www.nist.gov/news-events/information%20technology/rss.xml"
+  },
+  {
+    "name": "Ubuntu CVE",
+    "category": "CVE",
+    "channel": "cve-news",
+    "url": "https://ubuntu.com/security/notices/rss.xml"
+  },
+  {
+    "name": "NVD CVE API",
+    "category": "CVE",
+    "channel": "cve-news",
+    "url": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+    "type": "nvd-cve"
   }
 ]

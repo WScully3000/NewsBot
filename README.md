@@ -1,13 +1,13 @@
 # NewsBot
 
-NewsBot is an open-source Discord bot that monitors configured RSS/Atom (and JSON) feeds and posts new articles into channel categories on your server. It is designed to run locally (or in a container) and requires a single Discord bot token and channel configuration to get started.
+NewsBot is an open-source Discord bot that monitors feeds you configure and posts new items into channels on your server. It supports both RSS/Atom (XML) and JSON feed sources, and ships with zero preconfigured feeds or channels — you decide what it follows and where it posts, whether that's telecom news, gaming, sports, security advisories, or anything else. It is designed to run locally (or in a container) and requires a single Discord bot token to get started.
 
-The bot is intentionally small and dependency-light: a single `bot.py` script does the fetching, deduplication, and posting, while `feeds.json` and `channels.json` contain the configured sources and channel mappings. Both are gitignored (they're live, per-deployment state, editable via slash commands) — `feeds.example.json` and `channels.example.json` are the tracked templates.
+The bot is intentionally small and dependency-light: a single `bot.py` script does the fetching, deduplication, and posting, while `feeds.json` and `channels.json` hold your configured sources and channel mappings. Both are gitignored (they're live, per-deployment state, editable via slash commands) — `feeds.example.json` and `channels.example.json` are the tracked (empty) templates the bot seeds from on first run.
 
 ## What this repo contains
 
 - `bot.py` — main bot implementation (Discord client, feed fetcher, scheduler, DB, and slash commands).
-- `feeds.example.json` / `channels.example.json` — tracked templates. Copy to `feeds.json` / `channels.json` to get started; those are gitignored from then on.
+- `feeds.example.json` / `channels.example.json` — tracked templates (ship empty). The bot copies these into `feeds.json` / `channels.json` on first run if those don't exist yet; both are gitignored from then on.
 - `requirements.txt` — Python dependencies.
 
 ## Stack
@@ -32,21 +32,9 @@ Create a `.env` file in the project root (DO NOT commit this file). At minimum s
 
 ```
 DISCORD_TOKEN=your_discord_bot_token_here
-# Optional first-run channel IDs to seed channels.json (integers):
-TELECOM_CHANNEL_ID=123456789012345678
-FIBER_CHANNEL_ID=123456789012345678
-WIRELESS_CHANNEL_ID=123456789012345678
-CLOUD_CHANNEL_ID=123456789012345678
-AI_CHANNEL_ID=123456789012345678
-CYBER_CHANNEL_ID=123456789012345678
-REGULATORY_CHANNEL_ID=123456789012345678
-CARRIER_CHANNEL_ID=123456789012345678
-DATACENTER_CHANNEL_ID=123456789012345678
 ```
 
-The bot will seed `channels.json` from the `_CHANNEL_ID` env vars on first run if `channels.json` does not exist. That covers the 9 channel keys above; any other keys used in `feeds.json` (e.g. `business-news`, `software-engineering`, `cve-news`) need to be added afterward with `/addchannel`, or you can skip the env vars entirely and `cp channels.example.json channels.json`, filling in real channel IDs for every key up front.
-
-`feeds.json` has no env-based seeding — if it doesn't exist on first run, the bot seeds it from `feeds.example.json` (the repo's default source list) instead. Copy and edit `feeds.example.json` yourself first if you want a different starting set.
+See `.env.example` for optional overrides (NVD API key, file paths, poll interval).
 
 3. Start the bot
 
@@ -54,14 +42,19 @@ The bot will seed `channels.json` from the `_CHANNEL_ID` env vars on first run i
 python bot.py
 ```
 
-On startup the bot will sync application commands and immediately perform a feed check, then run checks on a schedule (default: every 15 minutes).
+`feeds.json` and `channels.json` don't exist yet on a fresh clone — the bot creates both automatically on first run (empty, from `feeds.example.json` / `channels.example.json`). Nothing will post until you add at least one channel and one feed:
+
+- In Discord: `/addchannel <key> <#channel>` to map a category key to a channel, then `/addfeed <name> <url> <category> <channel>` to add a feed pointed at it.
+- Or by hand: edit `channels.json` / `feeds.json` directly (see [Config files](#config-files) below for the shape). `feeds.json` is re-read on every check, so `/refresh` (or the next scheduled poll) picks up changes immediately. `channels.json` is only loaded once at startup, so a hand edit to it needs a bot **restart** to take effect — `/addchannel`/`/editchannel`/`/removechannel` update it live instead, without a restart.
+
+On startup the bot syncs application commands and immediately performs a feed check, then runs checks on a schedule (default: every 15 minutes).
 
 ## Config files
-- `feeds.json` (gitignored; template: `feeds.example.json`): Add, remove, or edit feed entries — directly, or add new ones via `/addfeed` (there's no remove-feed command yet; delete the entry from the file). Each entry should include `name`, `category`, `channel` (a key from `channels.json`), and `url`. An optional `type` field selects the feed format:
+- `feeds.json` (gitignored; template: `feeds.example.json`): a list of feed entries. Add, remove, or edit directly, or add new ones via `/addfeed` (there's no remove-feed command yet; delete the entry from the file). Each entry needs `name`, `category`, `channel` (a key from `channels.json`), and `url`. An optional `type` field selects the feed format:
   - `"rss"` (default, can be omitted) — any RSS/Atom XML feed, parsed with `feedparser`.
-  - `"nvd-cve"` — the [NVD CVE API](https://nvd.nist.gov/developers/vulnerabilities) (JSON). The bot queries recently modified CVEs on each check (NVD's documented best practice for gap-free polling) and posts one message per CVE newly published in that window. Optionally set `NVD_API_KEY` in `.env` to raise the API rate limit.
+  - `"nvd-cve"` — the [NVD CVE API](https://nvd.nist.gov/developers/vulnerabilities) (JSON), useful if you're running a security-news channel. The bot queries recently modified CVEs on each check (NVD's documented best practice for gap-free polling) and posts one message per CVE newly published in that window. Optionally set `NVD_API_KEY` in `.env` to raise the API rate limit.
   - New feed formats can be added via `/addfeed`'s `feed_type` option, which offers the same choices.
-- `channels.json` (gitignored; template: `channels.example.json`): Maps channel keys (used in `feeds.json`) to Discord channel IDs. Managed by the bot via slash commands `/addchannel`, `/editchannel`, `/removechannel`, or edited directly.
+- `channels.json` (gitignored; template: `channels.example.json`): maps channel keys of your choosing (referenced by `channel` in `feeds.json`) to Discord channel IDs. There's nothing special about the key names — pick whatever categories fit your use case. Managed via `/addchannel`, `/editchannel`, `/removechannel`, or edited directly.
 
 ## Runtime details
 - The bot uses an on-disk SQLite DB `news.db` to track posted article IDs and user timezone preferences. The DB is created automatically next to `bot.py`.
@@ -70,19 +63,13 @@ On startup the bot will sync application commands and immediately perform a feed
 
 ## Security & Secrets
 - The repository contains no Discord tokens or secret keys in tracked files.
-- `channels.json` contains numeric channel IDs (Discord snowflakes) and `feeds.json` reflects your actual configured sources — both are server-specific rather than secret, and both are gitignored so they never end up in a public fork's history.
+- `channels.json` contains numeric channel IDs (Discord snowflakes) and `feeds.json` reflects your actual configured sources — both are server-specific rather than secret, and both are gitignored so they never end up in a fork's history.
 - Never commit `.env` or any file containing `DISCORD_TOKEN` or other secrets. Add `.env` to `.gitignore` if it is not already present.
-
-Recommended check before publishing:
+- A `secret-check` GitHub Actions workflow (`.github/workflows/secret-check.yml`) runs on every push/PR and fails the build on likely hardcoded secrets. Before opening a PR, you can run the same check locally:
 
 ```bash
-# show any recent accidental commits containing 'TOKEN' or 'KEY'
-git grep -n "TOKEN\|KEY\|SECRET" -- ** || true
-# show any .env or .env.* accidentally tracked
-git ls-files | grep -i "\.env" || true
+git grep -I -E "(TOKEN|SECRET|API_KEY|PASSWORD|PRIVATE_KEY|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY)[[:space:]]*[:=][[:space:]]*[\"'][A-Za-z0-9_/+.-]{8,}[\"']" -- . ':!*.md' ':!.env.example' ':!.github/workflows/*'
 ```
-
-If you want, I can add a `.env.example` file (non-secret template) and a GitHub Actions workflow to block secrets in PRs.
 
 ## Running in Docker (optional)
 There is no Dockerfile in the repository. To run in Docker, create a simple Dockerfile that installs Python, copies the files, installs `requirements.txt`, and runs `python bot.py` while providing the `DISCORD_TOKEN` via an env file or secret.

@@ -4,8 +4,10 @@ import os
 import re
 import sqlite3
 import ssl
+import urllib.parse
 import urllib.request
 from calendar import timegm
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -15,6 +17,7 @@ import feedparser
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from discord import app_commands
 from dotenv import load_dotenv
+from feedparser.util import FeedParserDict
 
 load_dotenv()
 
@@ -28,6 +31,7 @@ _ssl_context = ssl.create_default_context(cafile=certifi.where())
 FEED_FETCH_HANDLERS = [urllib.request.HTTPSHandler(context=_ssl_context)]
 
 FEEDS_FILE = "feeds.json"
+FEEDS_EXAMPLE_FILE = "feeds.example.json"
 CHANNELS_FILE = "channels.json"
 DB_FILE = "news.db"
 ARTICLES_PER_FEED = 5
@@ -185,6 +189,19 @@ scheduler = AsyncIOScheduler()
 # -------------------------
 
 def load_feeds() -> list:
+    # feeds.json is gitignored (it's live, per-deployment state, edited via
+    # /addfeed). First run: seed it from the tracked example list so a fresh
+    # clone has a working starting point instead of crashing on a missing file.
+    if not os.path.exists(FEEDS_FILE):
+        if os.path.exists(FEEDS_EXAMPLE_FILE):
+            with open(FEEDS_EXAMPLE_FILE, "r") as f:
+                feeds = json.load(f)
+        else:
+            feeds = []
+
+        save_feeds(feeds)
+        return feeds
+
     with open(FEEDS_FILE, "r") as f:
         return json.load(f)
 
@@ -193,6 +210,132 @@ def save_feeds(feeds: list) -> None:
     with open(FEEDS_FILE, "w") as f:
         json.dump(feeds, f, indent=2)
         f.write("\n")
+
+
+# Feeds default to type "rss" (feedparser handles RSS/Atom XML). type
+# "nvd-cve" instead queries the NVD CVE API (JSON) and normalizes results
+# into the same FeedParserDict shape feedparser produces, so check_feeds()
+# and addfeed() don't need to know which kind of feed they're looking at.
+
+NVD_API_KEY = os.getenv("NVD_API_KEY")
+NVD_POLL_LOOKBACK_HOURS = 6
+NVD_VALIDATE_LOOKBACK_DAYS = 7
+
+
+@dataclass
+class FetchResult:
+    entries: list = field(default_factory=list)
+    bozo: bool = False
+    bozo_exception: Exception | None = None
+
+
+def _nvd_published_parsed(iso_timestamp: str):
+    # NVD publishes timestamps without a UTC offset (e.g. "2026-08-01T00:00:00.000")
+    # but they are UTC. Mirrors feedparser's published_parsed convention (a UTC
+    # struct_time) so article_timestamp() works unchanged for both feed types.
+    dt = datetime.fromisoformat(iso_timestamp).replace(tzinfo=timezone.utc)
+    return dt.utctimetuple()
+
+
+def _nvd_entry_from_vulnerability(vulnerability: dict) -> FeedParserDict:
+    cve = vulnerability["cve"]
+    cve_id = cve["id"]
+
+    description = next(
+        (d["value"] for d in cve.get("descriptions", []) if d.get("lang") == "en"),
+        "",
+    )
+
+    entry = FeedParserDict()
+    entry["id"] = cve_id
+    entry["title"] = cve_id
+    entry["link"] = f"https://nvd.nist.gov/vuln/detail/{cve_id}"
+    entry["summary"] = description
+    entry["published_parsed"] = _nvd_published_parsed(cve["published"])
+    return entry
+
+
+def fetch_nvd_cve_entries(url: str, lookback_hours: int, *, use_last_modified: bool) -> FetchResult:
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(hours=lookback_hours)
+    start_struct = start.utctimetuple()
+
+    if use_last_modified:
+        # NVD's documented best practice ("The best, most efficient, practice
+        # for keeping up to date with the NVD is to use the date range
+        # parameters to request only the CVEs that have been modified since
+        # your last request") filters by last-modified date, not published
+        # date - a CVE can become queryable after its nominal published
+        # timestamp, so filtering on published alone can silently miss it.
+        # Most lastModified hits in a short window are edits to older CVEs
+        # (filtered out below), not new publications, so fetch generously
+        # more than we'll actually post.
+        params = {
+            "lastModStartDate": start.strftime("%Y-%m-%dT%H:%M:%S.000"),
+            "lastModEndDate": now.strftime("%Y-%m-%dT%H:%M:%S.000"),
+            "resultsPerPage": max(ARTICLES_PER_FEED * 20, 100),
+        }
+    else:
+        # Used only to validate a feed URL at /addfeed time (a wide, e.g.
+        # 7-day, window). A plain published-date query is simpler and
+        # guaranteed non-empty for any real NVD endpoint; the lastModified
+        # completeness concern above only matters for gap-free periodic
+        # polling of a narrow window, not a one-off reachability check -
+        # and over a wide window, the top resultsPerPage lastModified hits
+        # are dominated by old-CVE edits, so the same approach could return
+        # zero newly-published entries here and misreport a healthy feed as
+        # broken.
+        params = {
+            "pubStartDate": start.strftime("%Y-%m-%dT%H:%M:%S.000"),
+            "pubEndDate": now.strftime("%Y-%m-%dT%H:%M:%S.000"),
+            "resultsPerPage": ARTICLES_PER_FEED,
+        }
+
+    request = urllib.request.Request(f"{url}?{urllib.parse.urlencode(params)}")
+    if NVD_API_KEY:
+        request.add_header("apiKey", NVD_API_KEY)
+
+    try:
+        with urllib.request.urlopen(request, context=_ssl_context) as response:
+            payload = json.load(response)
+
+        entries = [
+            _nvd_entry_from_vulnerability(v) for v in payload.get("vulnerabilities", [])
+        ]
+
+        if use_last_modified:
+            # Only alert on CVEs newly published in this window - the
+            # lastModified query above also surfaces metadata edits to old
+            # CVEs, which shouldn't be posted as news.
+            entries = [e for e in entries if e["published_parsed"] >= start_struct]
+
+        # check_feeds() assumes feedparser's newest-first convention
+        # (it takes entries[:ARTICLES_PER_FEED] then reverses to post oldest
+        # to newest); NVD's ordering isn't documented, so sort explicitly.
+        entries.sort(key=lambda e: e["published_parsed"], reverse=True)
+        return FetchResult(entries=entries[:ARTICLES_PER_FEED])
+    except Exception as e:
+        return FetchResult(bozo=True, bozo_exception=e)
+
+
+def fetch_feed_entries(feed: dict, *, validate: bool = False) -> FetchResult:
+    feed_type = feed.get("type", "rss")
+
+    if feed_type == "nvd-cve":
+        # /addfeed validates against a wide window so a quiet few hours on
+        # NVD's side doesn't look like a broken feed; periodic checks use a
+        # tight window sized to the poll interval to limit result volume.
+        lookback_hours = (
+            NVD_VALIDATE_LOOKBACK_DAYS * 24 if validate else NVD_POLL_LOOKBACK_HOURS
+        )
+        return fetch_nvd_cve_entries(feed["url"], lookback_hours, use_last_modified=not validate)
+
+    data = feedparser.parse(feed["url"], handlers=FEED_FETCH_HANDLERS)
+    return FetchResult(
+        entries=data.entries,
+        bozo=data.bozo,
+        bozo_exception=getattr(data, "bozo_exception", None),
+    )
 
 
 async def check_feeds():
@@ -205,15 +348,14 @@ async def check_feeds():
         try:
             print(f"Checking {feed['name']}")
 
-            # feedparser does a blocking network fetch; run off the event
-            # loop so a slow feed can't stall the Discord heartbeat.
-            data = await asyncio.to_thread(
-                feedparser.parse, feed["url"], handlers=FEED_FETCH_HANDLERS
-            )
+            # Fetching is a blocking network call either way (feedparser or
+            # urllib); run off the event loop so a slow feed can't stall the
+            # Discord heartbeat.
+            data = await asyncio.to_thread(fetch_feed_entries, feed)
 
-            # feedparser swallows fetch/parse errors (e.g. TLS failures)
-            # into bozo_exception instead of raising, so without this the
-            # feed silently produces zero entries with no visible error.
+            # Fetch failures (TLS errors, malformed XML/JSON, HTTP errors)
+            # are captured into bozo/bozo_exception instead of raising, so
+            # without this check a feed would silently produce zero entries.
             if data.bozo and not data.entries:
                 print(f"Feed warning {feed['name']}: {data.bozo_exception}")
                 continue
@@ -452,12 +594,19 @@ async def listfeeds(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
-@tree.command(name="addfeed", description="Add a new RSS feed source")
+@tree.command(name="addfeed", description="Add a new feed source")
 @app_commands.describe(
     name="Display name for the source",
-    url="RSS/Atom feed URL",
+    url="Feed URL (RSS/Atom, or the NVD CVE API endpoint for JSON)",
     category="Category label shown in posts (e.g. 'Cybersecurity')",
     channel="Channel to post this feed's articles to",
+    feed_type="Feed format (default: RSS/Atom)",
+)
+@app_commands.choices(
+    feed_type=[
+        app_commands.Choice(name="RSS/Atom", value="rss"),
+        app_commands.Choice(name="NVD CVE API (JSON)", value="nvd-cve"),
+    ]
 )
 @app_commands.autocomplete(channel=channel_key_autocomplete)
 async def addfeed(
@@ -466,6 +615,7 @@ async def addfeed(
     url: str,
     category: str,
     channel: str,
+    feed_type: str = "rss",
 ):
     if not is_admin(interaction):
         await interaction.response.send_message("❌ Administrator required.", ephemeral=True)
@@ -486,7 +636,9 @@ async def addfeed(
         await interaction.followup.send("⚠️ That feed URL is already configured.")
         return
 
-    data = await asyncio.to_thread(feedparser.parse, url, handlers=FEED_FETCH_HANDLERS)
+    data = await asyncio.to_thread(
+        fetch_feed_entries, {"url": url, "type": feed_type}, validate=True
+    )
 
     if data.bozo and not data.entries:
         await interaction.followup.send(f"❌ Couldn't parse that feed: {data.bozo_exception}")
@@ -496,7 +648,11 @@ async def addfeed(
         await interaction.followup.send("❌ Feed parsed but returned zero articles — check the URL.")
         return
 
-    feeds.append({"name": name, "category": category, "channel": channel, "url": url})
+    new_feed = {"name": name, "category": category, "channel": channel, "url": url}
+    if feed_type != "rss":
+        new_feed["type"] = feed_type
+
+    feeds.append(new_feed)
     save_feeds(feeds)
 
     await interaction.followup.send(

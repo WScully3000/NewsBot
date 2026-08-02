@@ -30,26 +30,13 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 _ssl_context = ssl.create_default_context(cafile=certifi.where())
 FEED_FETCH_HANDLERS = [urllib.request.HTTPSHandler(context=_ssl_context)]
 
-FEEDS_FILE = "feeds.json"
+FEEDS_FILE = os.getenv("FEEDS_FILE", "feeds.json")
 FEEDS_EXAMPLE_FILE = "feeds.example.json"
-CHANNELS_FILE = "channels.json"
-DB_FILE = "news.db"
-ARTICLES_PER_FEED = 5
-FEED_CHECK_INTERVAL_MINUTES = 15
-
-
-def _seed_channels_from_env() -> dict:
-    return {
-        "telecom-news": int(os.getenv("TELECOM_CHANNEL_ID")),
-        "fiber-news": int(os.getenv("FIBER_CHANNEL_ID")),
-        "wireless-news": int(os.getenv("WIRELESS_CHANNEL_ID")),
-        "cloud-news": int(os.getenv("CLOUD_CHANNEL_ID")),
-        "ai-news": int(os.getenv("AI_CHANNEL_ID")),
-        "cybersecurity-news": int(os.getenv("CYBER_CHANNEL_ID")),
-        "regulatory-news": int(os.getenv("REGULATORY_CHANNEL_ID")),
-        "carrier-alerts": int(os.getenv("CARRIER_CHANNEL_ID")),
-        "datacenter-news": int(os.getenv("DATACENTER_CHANNEL_ID")),
-    }
+CHANNELS_FILE = os.getenv("CHANNELS_FILE", "channels.json")
+CHANNELS_EXAMPLE_FILE = "channels.example.json"
+DB_FILE = os.getenv("DB_FILE", "news.db")
+ARTICLES_PER_FEED = int(os.getenv("ARTICLES_PER_FEED", "5"))
+FEED_CHECK_INTERVAL_MINUTES = int(os.getenv("FEED_CHECK_INTERVAL_MINUTES", "15"))
 
 
 def save_channels(channels: dict) -> None:
@@ -59,12 +46,16 @@ def save_channels(channels: dict) -> None:
 
 
 def load_channels() -> dict:
-    # First run: no channels.json yet, so seed it from the existing
-    # .env-based channel IDs (one-time migration). After this, .env's
-    # *_CHANNEL_ID vars are no longer read - channels.json is the sole
-    # source of truth, editable live via /addchannel /editchannel /removechannel.
+    # First run: no channels.json yet, so seed it from the tracked example
+    # template (ships empty - add your own via /addchannel or by editing
+    # channels.json directly).
     if not os.path.exists(CHANNELS_FILE):
-        channels = _seed_channels_from_env()
+        if os.path.exists(CHANNELS_EXAMPLE_FILE):
+            with open(CHANNELS_EXAMPLE_FILE, "r") as f:
+                channels = json.load(f)
+        else:
+            channels = {}
+
         save_channels(channels)
         return channels
 
@@ -273,7 +264,8 @@ def fetch_nvd_cve_entries(url: str, lookback_hours: int, *, use_last_modified: b
         params = {
             "lastModStartDate": start.strftime("%Y-%m-%dT%H:%M:%S.000"),
             "lastModEndDate": now.strftime("%Y-%m-%dT%H:%M:%S.000"),
-            "resultsPerPage": max(ARTICLES_PER_FEED * 20, 100),
+            # NVD caps resultsPerPage at 2000.
+            "resultsPerPage": min(max(ARTICLES_PER_FEED * 20, 100), 2000),
         }
     else:
         # Used only to validate a feed URL at /addfeed time (a wide, e.g.
@@ -362,10 +354,12 @@ async def check_feeds():
 
             channel_id = CHANNELS.get(feed.get("channel"))
             if channel_id is None:
+                print(f"Skipping {feed['name']}: channel key '{feed.get('channel')}' not in channels.json")
                 continue
 
             channel = client.get_channel(channel_id)
             if channel is None:
+                print(f"Skipping {feed['name']}: bot can't see channel ID {channel_id} (wrong ID, or bot not in that server/channel)")
                 continue
 
             for article in reversed(data.entries[:ARTICLES_PER_FEED]):
@@ -405,7 +399,7 @@ async def check_feeds():
                 if image_url:
                     embed.set_image(url=image_url)
 
-                embed.set_footer(text="TELECOM_RSS_BOT")
+                embed.set_footer(text="NewsBot")
 
                 await channel.send(embed=embed)
                 await asyncio.sleep(1)
@@ -429,9 +423,7 @@ async def check_feeds():
 # Validation is handled through Python's zoneinfo module.
 #
 # These presets focus on:
-# - US business markets
-# - Telecom/carrier hubs
-# - Data center markets
+# - Major US metro areas
 # - Common international locations
 
 TIMEZONE_PRESETS = {
@@ -441,6 +433,7 @@ TIMEZONE_PRESETS = {
     "Atlanta / Eastern": "America/New_York",
     "Miami / Eastern": "America/New_York",
     "Boston / Eastern": "America/New_York",
+    "Northern Virginia": "America/New_York",
 
     # United States - Central
     "Chicago / Central": "America/Chicago",
@@ -459,18 +452,11 @@ TIMEZONE_PRESETS = {
     "San Francisco / Pacific": "America/Los_Angeles",
     "Seattle / Pacific": "America/Los_Angeles",
     "Las Vegas / Pacific": "America/Los_Angeles",
+    "Silicon Valley": "America/Los_Angeles",
 
     # Alaska / Hawaii
     "Alaska": "America/Anchorage",
     "Hawaii": "Pacific/Honolulu",
-
-    # Telecom / Data Center Hubs
-    "Ashburn VA (Data Centers)": "America/New_York",
-    "Northern Virginia": "America/New_York",
-    "Silicon Valley": "America/Los_Angeles",
-    "Phoenix AZ (Data Centers)": "America/Phoenix",
-    "Dallas TX (Data Centers)": "America/Chicago",
-    "Chicago IL (Data Centers)": "America/Chicago",
 
     # Canada
     "Toronto": "America/Toronto",

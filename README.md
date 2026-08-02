@@ -1,13 +1,13 @@
 # NewsBot
 
-NewsBot is an open-source Discord bot that monitors feeds you configure and posts new items into channels on your server. It supports both RSS/Atom (XML) and JSON feed sources, and ships with zero preconfigured feeds or channels — you decide what it follows and where it posts, whether that's telecom news, gaming, sports, security advisories, or anything else. It is designed to run locally (or in a container) and requires a single Discord bot token to get started.
+NewsBot is an open-source Discord bot that monitors feeds you configure and posts new items into channels on your server. It supports both RSS/Atom (XML) and JSON feed sources, and ships with no real feeds or channels preconfigured — just placeholder examples you're expected to replace — so you decide what it follows and where it posts, whether that's telecom news, gaming, sports, security advisories, or anything else. It is designed to run locally (or in a container) and requires a single Discord bot token to get started.
 
-The bot is intentionally small and dependency-light: a single `bot.py` script does the fetching, deduplication, and posting, while `feeds.json` and `channels.json` hold your configured sources and channel mappings. Both are gitignored (they're live, per-deployment state, editable via slash commands) — `feeds.example.json` and `channels.example.json` are the tracked (empty) templates the bot seeds from on first run.
+The bot is intentionally small and dependency-light: a single `bot.py` script does the fetching, deduplication, and posting, while `feeds.json` and `channels.json` hold your configured sources and channel mappings. Both are gitignored (they're live, per-deployment state, editable via slash commands) — `feeds.example.json` and `channels.example.json` are the tracked templates the bot seeds from on first run, containing placeholder examples (a dummy RSS URL, a real NVD CVE API entry to demonstrate the JSON feed type, and dummy Discord channel IDs) rather than real working defaults.
 
 ## What this repo contains
 
 - `bot.py` — main bot implementation (Discord client, feed fetcher, scheduler, DB, and slash commands).
-- `feeds.example.json` / `channels.example.json` — tracked templates (ship empty). The bot copies these into `feeds.json` / `channels.json` on first run if those don't exist yet; both are gitignored from then on.
+- `feeds.example.json` / `channels.example.json` — tracked templates with placeholder content (dummy URL/IDs, plus one real entry demonstrating the JSON feed type). The bot copies these into `feeds.json` / `channels.json` on first run if those don't exist yet; both are gitignored from then on.
 - `requirements.txt` — Python dependencies.
 
 ## Stack
@@ -42,9 +42,9 @@ See `.env.example` for optional overrides (NVD API key, file paths, poll interva
 python bot.py
 ```
 
-`feeds.json` and `channels.json` don't exist yet on a fresh clone — the bot creates both automatically on first run (empty, from `feeds.example.json` / `channels.example.json`). Nothing will post until you add at least one channel and one feed:
+`feeds.json` and `channels.json` don't exist yet on a fresh clone — the bot creates both automatically on first run, seeded from `feeds.example.json` / `channels.example.json`. Those contain placeholders (a dummy feed URL, a dummy Discord channel ID) rather than real values, so nothing will post until you replace them:
 
-- In Discord: `/addchannel <key> <#channel>` to map a category key to a channel, then `/addfeed <name> <url> <category> <channel>` to add a feed pointed at it.
+- In Discord: `/addchannel <key> <#channel>` to point a channel key at a real channel, then `/addfeed <name> <url> <category> <channel>` to add your own feed. Placeholder entries left unedited are skipped with a console message explaining why (unmapped channel key, or a channel ID the bot can't see) — nothing posts silently.
 - Or by hand: edit `channels.json` / `feeds.json` directly (see [Config files](#config-files) below for the shape). `feeds.json` is re-read on every check, so `/refresh` (or the next scheduled poll) picks up changes immediately. `channels.json` is only loaded once at startup, so a hand edit to it needs a bot **restart** to take effect — `/addchannel`/`/editchannel`/`/removechannel` update it live instead, without a restart.
 
 On startup the bot syncs application commands and immediately performs a feed check, then runs checks on a schedule (default: every 15 minutes).
